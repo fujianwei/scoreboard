@@ -31,8 +31,7 @@ def popupmenu(event):
 
 def about():
     # 弹出一个新的窗口 上面写有学号和姓名
-    showinfo(title='关于', message='小组成员：付建伟 学号：2019180143\n'
-                                 '小组成员；王子龙 学号：2019180121')
+    showinfo(title='关于', message='小组成员：付建伟')
 
 
 def help():
