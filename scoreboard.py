@@ -9,7 +9,9 @@ file = ''
 IS = [[''] * 4 for i in range(6)]  # 创建指令的 表格6行4列
 FS = [[''] * 9 for i in range(5)]  # 创建功能部件的 表格5行9列
 RS = [[''] * 6 for i in range(1)]  # 创建寄存及的 表格1行6列
-
+_is = ['issue', 'read', 'exec', 'write']
+_fs = ['Busy', 'OP', 'Fi', 'Fj', 'Fk', 'Qj', 'Qk', 'Rj', 'Rk']
+_rs = ['F0', 'F2', 'F4', 'F6', 'F8', 'F10']
 
 def ope():  # 打开文件选择 同时开始
     filename = tkinter.filedialog.askopenfilename()
@@ -19,7 +21,7 @@ def ope():  # 打开文件选择 同时开始
         content = file.split('|')
         for con in content:
             txt.insert(END, con+'\n')
-        print(content)
+        # print(content)
 
 
 def run():
@@ -101,24 +103,24 @@ def run_process():
         # 判断所有的正在执行的指令在目前的状态，能不能往下执行一下
         lastnow2 = lastnow + 1
         for i in range(0, lastnow2):
-            if instructionlist[i]._state == 2:
+            if instructionlist[i]._state == 2:  # 如果是处于执行状态，那么无视该指令，继续执行
                 continue
             for j in range(0, 4):  # 看每条指令执行到了什么状态
                 if instructionlist[i]._stage[j] == 0:  # 首先看这条指令执行到了什么阶段
                     if j == 0:
-                        if read_fs(instructionlist[i]._op):
-                            x = fun_num(instructionlist[i]._op)  # x：使用FS表的第x+1行
+                        if read_fs(instructionlist[i]._op):  # fs的第一列不是busy，没有结构相关
+                            x = fun_num(instructionlist[i]._op)  # x：根据op找到应该使用FS表的第几（x+1）行
                             FS[x][0] = 'Busy'
                             FS[x][1] = instructionlist[i]._op
                             FS[x][2] = instructionlist[i]._dest
                             FS[x][3] = instructionlist[i]._source1
                             FS[x][4] = instructionlist[i]._source2
 
-                            read_rs(instructionlist[i]._source1, instructionlist[i]._source2, x)  # 读相关
-                            write_rs(instructionlist[i]._dest, instructionlist[i]._op)  # 写相关
+                            read_rs(instructionlist[i]._source1, instructionlist[i]._source2, x)  # 读相关，如果都是空，那么在fs处写上
+                            write_rs(instructionlist[i]._dest, instructionlist[i]._op)  # 把op内容写到rs
                             instructionlist[i]._stage[j] = cycle
-                            IS[i][0] = cycle
-                            recordissue += 1
+                            IS[i][0] = cycle  # 什么时候发射的
+                            recordissue += 1  # 发射记录一次
                             break
                         else:
                             break
@@ -138,11 +140,27 @@ def run_process():
                             instructionlist[i]._stage[j] = cycle
                             IS[i][2] = cycle
                         break
-                    if j == 3:
-                        instructionlist[i]._stage[j] = cycle
-                        instructionlist[i]._state = 2
-                        IS[i][3] = cycle
-                        recordreset.append(i)
+                    if j == 3:  # 没有考虑到读后写相关
+                        # 读后写相关：先读完，再写入
+                        # 指令满足的条件：在该条指令之前，且还没有完成读操作数（没发射 或 发射但没有读操作数），且源操作数是该指令的目的操作数
+                        # 则：需要等待满足上述条件的指令读完操作数后，再写入目的寄存器
+                        # 读完：本周期不能写入目的寄存器：instructionlist[k]._stage[1]==当前周期数
+                        write = 1
+
+                        for k in range(0, i):  # 检查在当前即将执行写操作的指令之前的所有指令
+                            if instructionlist[k]._stage[1] == 0:  # 还没读 或者 还没发射
+                                if instructionlist[k]._source1 == instructionlist[i]._dest or instructionlist[k]._source2 == instructionlist[i]._dest:
+                                    write = 0  # 找到了 还没进行读操作的指令 write设为0
+                            if IS[k][1] == cycle:  # IS[i][2]表示读占用的周期，如果是本周期，即：正在读，那么后面的指令不可以写，只能等下一个周期写（等我读完，下个周期就读完）
+                                write = 0
+                        # 如果上述条件都满足，则不执行写操作
+                        # 如果不满足，则执行写操作
+
+                        if write == 1:  # 没有 没进行读操作 的指令，那么可以写
+                            instructionlist[i]._stage[j] = cycle
+                            instructionlist[i]._state = 2
+                            IS[i][3] = cycle
+                            recordreset.append(i)  # 指令执行完了，需要复原记一下
                         break
 
             if recordissue != 0:
@@ -156,26 +174,45 @@ def run_process():
 
         txt_process.insert(END, '\n')
         txt_process.insert(END, '当前周期数：%d\n' % cycle)
+        # print('当前周期数', cycle)
         txt_process.insert(END, '=====IS状态=====\n')
         for i in range(len(IS)):
-            txt_process.insert(END, IS[i])
+            if i == 0:  # 第一行输出名称
+                for k in range(len(IS[i])):
+                    txt_process.insert(END, '%s\t' % _is[k])
+                txt_process.insert(END, '\n')
+            for j in range(0, len(IS[i])):
+                txt_process.insert(END, '%s\t' % IS[i][j])
             txt_process.insert(END, '\n')
+            # print(IS[i])
 
         txt_process.insert(END, '=====FS状态=====\n')
         for i in range(len(FS)):
-            txt_process.insert(END, FS[i])
+            if i == 0:  # 第一行输出名称
+                for k in range(len(FS[i])):
+                    txt_process.insert(END, '%s\t' % _fs[k])
+                txt_process.insert(END, '\n')
+            for j in range(len(FS[i])):
+                txt_process.insert(END, '%s\t' % FS[i][j])
             txt_process.insert(END, '\n')
+            # print(FS[i])
 
         txt_process.insert(END, '=====RS状态=====\n')
         for i in range(len(RS)):
-            txt_process.insert(END, RS[i])
-            txt_process.insert(END, '\n')
-            txt_process.insert(END, '\n')
-            txt_process.insert(END, '============================================================================================')
-            txt_process.insert(END, '\n')
-            txt_process.insert(END, '\n')
+            if i == 0:  # 第一行输出名称
+                for k in range(len(RS[i])):
+                    txt_process.insert(END, '%s\t' % _rs[k])
+                txt_process.insert(END, '\n')
+            for j in range(len(RS[i])):
+                txt_process.insert(END, '%s\t' % RS[i][j])
+        txt_process.insert(END, '\n')
+        txt_process.insert(END, '\n')
+        txt_process.insert(END, '============================================================================================')
+        txt_process.insert(END, '\n')
+        txt_process.insert(END, '\n')
+        # print(RS[i])
 
-        # time.sleep(1)
+
         cycle += 1
 
     txt_process.insert(END, '\n')
@@ -245,8 +282,9 @@ def read_rs(x1, x2, x):  # 两个源操作数x1,x2; x是第几行
     if x1 in rs:  # 被占用了
         index1 = rs.index(x1)
         if RS[0][index1] != '':
-            FS[x][7] = 'no'
-            FS[x][5] = RS[0][index1]  # 在FS对应的位置写上RS的内容
+            if FS[x][7] != 'yes':  # 如果源寄存器状态不为yes，则可以更改为no，一旦写为'yes'，则不可再更改
+                FS[x][7] = 'no'
+                FS[x][5] = RS[0][index1]  # 在FS对应的位置写上RS的内容
         else:
             FS[x][7] = 'yes'
     else:
@@ -255,15 +293,16 @@ def read_rs(x1, x2, x):  # 两个源操作数x1,x2; x是第几行
     if x2 in rs:  # 被占用了
         index2 = rs.index(x2)  # 查找x2在RS表中的位置并返回下标
         if RS[0][index2] != '':  # 如果不是空的话
-            FS[x][8] = 'no'  # 在FS表中写上no
-            FS[x][6] = RS[0][index2]  # 在FS表中写上RS对应的内容
+            if FS[x][8] != 'yes':  # 如果源寄存器状态不为yes，则可以更改为no，一旦写为'yes'，则不可再更改
+                FS[x][8] = 'no'  # 在FS表中写上no
+                FS[x][6] = RS[0][index2]  # 在FS表中写上RS对应的内容
         else:
             FS[x][8] = 'yes'
     else:
         FS[x][8] = 'yes'
 
 
-# 指令发射之后要将目的寄存器占用，然后在RS中写入指令的操作符instruction.op
+# 指令发射之后要将目的寄存器占用，然后在RS中写入指令的操作符instruction._op
 def write_rs(reg, y):  # 把状态写入对应的寄存器里
     rs = ["F0", "F2", "F4", "F6", "F8", "F10"]
     index = rs.index(reg)  # 找到位置然后写入对应的状态
